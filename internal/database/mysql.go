@@ -11,15 +11,14 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// Open 建立连接池并检查数据库可达性，不创建数据库或自动迁移。
-// 调用方负责从环境读取 DSN，并在结束使用后关闭底层 sql.DB。
+// 建立连接池并检查数据库可达性
 func Open(ctx context.Context, dsn string) (*gorm.DB, error) {
 	if dsn == "" {
 		return nil, errors.New("MySQL DSN is required")
 	}
 	cfg, err := drivermysql.ParseDSN(dsn)
 	if err != nil {
-		// 不把包含账号密码的原始 DSN 放入错误信息。
+		// 不把包含账号密码的原始 DSN 放入错误信息
 		return nil, errors.New("invalid MySQL DSN")
 	}
 	if cfg.DBName == "" {
@@ -47,7 +46,7 @@ func Open(ctx context.Context, dsn string) (*gorm.DB, error) {
 	pool.SetMaxOpenConns(5)
 	pool.SetMaxIdleConns(2)
 	pool.SetConnMaxLifetime(3 * time.Minute)
-	// 创建连接池不等于连接成功，PingContext 才进行实际连通性验证。
+	// 创建连接池不等于连接成功，PingContext 才进行实际连通性验证
 	if err := pool.PingContext(ctx); err != nil {
 		pool.Close()
 		return nil, errors.New("MySQL ping failed; check address, credentials and database")
