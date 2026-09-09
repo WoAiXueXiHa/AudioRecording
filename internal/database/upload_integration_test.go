@@ -3,6 +3,7 @@ package database
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -70,6 +71,14 @@ func testUpload(t *testing.T, db *gorm.DB) {
 	var result recording.UploadResult
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
+	}
+	// 把第三、四步串起来：使用上传响应里的 ID 查询，不假设自增编号。
+	for _, path := range []string{fmt.Sprintf("/v1/recordings/%d", result.RecordingID), fmt.Sprintf("/v1/tasks/%d", result.TaskID)} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != 200 {
+			t.Fatalf("query uploaded resource: %s %d %s", path, w.Code, w.Body)
+		}
 	}
 	var rec model.Recording
 	var task model.Task
