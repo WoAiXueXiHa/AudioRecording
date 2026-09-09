@@ -19,11 +19,16 @@ import (
 type Runner struct {
 	service *Service
 	asr     Transcriber
+	llm     Summarizer
 	workers sync.WaitGroup
 }
 
-func NewRunner(service *Service, asr Transcriber) *Runner {
-	return &Runner{service: service, asr: asr}
+func NewRunner(service *Service, asr Transcriber, summaries ...Summarizer) *Runner {
+	r := &Runner{service: service, asr: asr}
+	if len(summaries) > 0 {
+		r.llm = summaries[0]
+	}
+	return r
 }
 
 // Run 在一个 goroutine 中调用；停止后再调用 Wait，避免领取任务与等待互相竞争。
@@ -81,11 +86,16 @@ func (r *Runner) dispatch(ctx context.Context) {
 }
 
 func (r *Runner) transcribe(ctx context.Context, task model.Task) {
+	stage := model.TaskTranscribing
+	stageStarted := time.Now()
+	defer func() {
+		log.Printf("task stage ended task_id=%d stage=%s elapsed_ms=%d", task.ID, stage, time.Since(stageStarted).Milliseconds())
+	}()
 	// Gin 的 recovery 只保护 HTTP goroutine，后台任务需要自己的 panic 兜底。
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			log.Printf("task panic task_id=%d error=%v stack=%s", task.ID, recovered, debug.Stack())
-			r.fail(task, "worker_panic", "background task panicked")
+			r.fail(task, stage, "worker_panic", "background task panicked")
 		}
 	}()
 	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -94,22 +104,45 @@ func (r *Runner) transcribe(ctx context.Context, task model.Task) {
 	cancel()
 	if err != nil {
 		log.Printf("task read recording failed task_id=%d error=%v", task.ID, err)
-		r.fail(task, "database_error", "cannot read recording")
+		r.fail(task, stage, "database_error", "cannot read recording")
 		return
 	}
 	transcript, err := r.asr.Transcribe(ctx, audio.StoragePath)
 	if err != nil {
 		log.Printf("task transcription failed task_id=%d error=%v", task.ID, err)
-		r.fail(task, "transcription_failed", "audio transcription failed")
+		r.fail(task, stage, "transcription_failed", "audio transcription failed")
 		return
 	}
 	if err := r.saveTranscript(ctx, task, transcript); err != nil {
 		log.Printf("task save transcript failed task_id=%d error=%v", task.ID, err)
-		r.fail(task, "database_error", "cannot save transcript")
+		r.fail(task, stage, "database_error", "cannot save transcript")
 		return
 	}
 	log.Printf("task transition recording_id=%d task_id=%d from=transcribing to=summarizing", task.RecordingID, task.ID)
-	// 当前功能提交到转写为止；真实 LLM 摘要在下一功能提交接入，不伪造完成结果。
+	log.Printf("task stage ended task_id=%d stage=%s elapsed_ms=%d", task.ID, stage, time.Since(stageStarted).Milliseconds())
+	stage = model.TaskSummarizing
+	stageStarted = time.Now()
+	// nil 只用于独立转写测试；生产启动强制创建真实摘要客户端。
+	if r.llm == nil {
+		return
+	}
+	summary, err := r.llm.Summarize(ctx, transcript)
+	if err != nil {
+		code := "llm_unavailable"
+		var summaryErr *SummaryError
+		if errors.As(err, &summaryErr) {
+			code = summaryErr.Code
+		}
+		log.Printf("task summary failed task_id=%d code=%s", task.ID, code)
+		r.fail(task, stage, code, "summary generation failed")
+		return
+	}
+	if err := r.saveSummary(ctx, task, summary); err != nil {
+		log.Printf("task save summary failed task_id=%d error=%v", task.ID, err)
+		r.fail(task, stage, "database_error", "cannot save summary")
+		return
+	}
+	log.Printf("task transition recording_id=%d task_id=%d from=summarizing to=done", task.RecordingID, task.ID)
 }
 
 func (r *Runner) saveTranscript(ctx context.Context, task model.Task, transcript string) error {
@@ -135,14 +168,14 @@ func (r *Runner) saveTranscript(ctx context.Context, task model.Task, transcript
 	})
 }
 
-func (r *Runner) fail(task model.Task, code, message string) {
+func (r *Runner) fail(task model.Task, stage, code, message string) {
 	// 服务 context 已取消时仍给失败状态一次短暂的落库机会；不自动重试外部调用。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	result := r.service.db.WithContext(ctx).Model(&model.Task{}).
-		Where("id = ? AND status = ?", task.ID, model.TaskTranscribing).
+		Where("id = ? AND status = ?", task.ID, stage).
 		Updates(map[string]any{
-			"status": model.TaskFailed, "failed_stage": model.TaskTranscribing,
+			"status": model.TaskFailed, "failed_stage": stage,
 			"error_code": code, "error_message": message, "finished_at": time.Now().UTC(),
 		})
 	if result.Error != nil {
@@ -150,6 +183,31 @@ func (r *Runner) fail(task model.Task, code, message string) {
 		return
 	}
 	if result.RowsAffected == 1 {
-		log.Printf("task transition recording_id=%d task_id=%d from=transcribing to=failed code=%s", task.RecordingID, task.ID, code)
+		log.Printf("task transition recording_id=%d task_id=%d from=%s to=failed code=%s", task.RecordingID, task.ID, stage, code)
 	}
+}
+
+// saveSummary 与任务完成标记同事务提交，避免看到 done 却没有摘要。
+func (r *Runner) saveSummary(ctx context.Context, task model.Task, summary SummaryResult) error {
+	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return r.service.db.WithContext(dbCtx).Transaction(func(tx *gorm.DB) error {
+		var current model.Task
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", task.ID).Take(&current).Error; err != nil {
+			return err
+		}
+		if current.Status != model.TaskSummarizing {
+			return errors.New("task is no longer summarizing")
+		}
+		// 使用 model 字段写入，确保 GORM 的 JSON serializer 正确处理字符串切片。
+		audio := model.Recording{Summary: &summary.Summary, KeyPoints: summary.KeyPoints, Todos: summary.Todos}
+		result := tx.Model(&model.Recording{}).Where("id = ?", task.RecordingID).Select("Summary", "KeyPoints", "Todos", "UpdatedAt").Updates(&audio)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("recording %d missing", task.RecordingID)
+		}
+		return tx.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{"status": model.TaskDone, "finished_at": time.Now().UTC()}).Error
+	})
 }

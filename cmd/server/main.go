@@ -49,6 +49,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// 摘要必须调用真实 LLM；缺少密钥在启动时明确失败，不静默降级为 Mock。
+	llm, err := recording.NewDeepSeekClient(os.Getenv("DEEPSEEK_API_KEY"), os.Getenv("DEEPSEEK_BASE_URL"), os.Getenv("DEEPSEEK_MODEL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// 创建 HTTP 服务，请求交给 Gin
 	server := &http.Server{
 		Addr:              addr,
@@ -62,7 +68,7 @@ func main() {
 		log.Fatalf("listen failed: %v", err)
 	}
 	// 后台任务独立于每一个 HTTP 请求；只有数据库提交后的 pending 行才会被领取。
-	runner := recording.NewRunner(uploads, recording.NewMockTranscriber())
+	runner := recording.NewRunner(uploads, recording.NewMockTranscriber(), llm)
 	go runner.Run(context.Background())
 	log.Printf("HTTP server ready on %s", listener.Addr())
 	// server 接收请求

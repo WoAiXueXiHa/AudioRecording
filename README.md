@@ -1,6 +1,6 @@
 # 录音转写服务
 
-使用 Go、Gin、GORM 和 MySQL 实现录音上传与任务查询，原始音频保存到本地磁盘。当前已完成上传和查询的阶段验收；异步转写、真实 LLM 摘要及剩余 P0 接口正在实现，尚不是最终交付版本。
+使用 Go、Gin、GORM 和 MySQL 实现录音上传、异步 Mock 转写和真实 DeepSeek 摘要，原始音频保存到本地磁盘。失败重试、删除与最终启动交付仍在后续批次完成。
 
 ## 本地运行
 
@@ -11,7 +11,7 @@ mysql -h 127.0.0.1 -u audio -p audio_recording < migrations/001_init.sql
 cp .env.example .env
 ```
 
-编辑 `.env`，填入实际 `MYSQL_DSN`。示例文件和 `.env` 不会被 Go 程序自动读取；使用下面命令导入 shell 环境后启动，含空格或 shell 特殊字符的值须在 `.env` 中正确引用：
+编辑 `.env`，填入实际 `MYSQL_DSN` 和 `DEEPSEEK_API_KEY`。示例文件和 `.env` 不会被 Go 程序自动读取；使用下面命令导入 shell 环境后启动，含空格或 shell 特殊字符的值须在 `.env` 中正确引用：
 
 ```bash
 set -a
@@ -77,4 +77,10 @@ python3 scripts/check-mysql.py
 
 未设置 `TEST_MYSQL_DSN` 的普通 Go 测试会跳过数据库集成部分。隔离检查脚本需要 Docker，创建临时 MySQL 并在结束后清理。上传与查询已通过真实 MySQL 的阶段测试；这不等于完整业务端到端验收。
 
-当前后台每秒领取 pending，使用 goroutine 执行随机 5～15 秒、约 20% 失败的 Mock 转写；成功保存 transcript 并停在 summarizing，尚未接入摘要。服务仅支持单实例，不限制同时执行任务数。真实摘要、手动重试、删除、一键启动和可导入 API 文件仍待完成；本节会随各功能验收更新。项目不提供鉴权、前端、真实 ASR、自动重试、SSE、上传幂等或公网部署。
+当前后台每秒领取 pending，使用 goroutine 执行随机 5～15 秒、约 20% 失败的 Mock 转写；成功保存 transcript 后调用真实 DeepSeek，完整结果与 done 同事务提交。服务仅支持单实例，不限制同时执行任务数。手动重试、删除、一键启动和可导入 API 文件仍待完成；本节会随各功能验收更新。项目不提供鉴权、前端、真实 ASR、自动重试、SSE、上传幂等或公网部署。
+
+## 真实摘要调用
+
+默认 `DEEPSEEK_BASE_URL=https://api.deepseek.com`、`DEEPSEEK_MODEL=deepseek-v4-flash`，密钥通过 `DEEPSEEK_API_KEY` 注入。缺少密钥启动失败，不降级为 Mock。客户端使用非思考、非流式 JSON 输出，总超时60秒，不自动重试；转写输入最多64KiB、响应最多1MiB。
+
+只有正常结束且输出符合 summary非空字符串、key_points/todos字符串数组（允许空数组）时，结果才能落库。超时、HTTP失败、JSON或字段格式错误进入 failed，错误阶段为 summarizing。日志不记录密钥或供应商完整响应。配置与调用约定参考 [DeepSeek JSON输出](https://api-docs.deepseek.com/guides/json_mode/) 和 [思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
