@@ -70,6 +70,7 @@ func TestMySQLMapping(t *testing.T) {
 		}
 	}
 	t.Run("queries", func(t *testing.T) { testQueries(t, db) })
+	t.Run("runner", func(t *testing.T) { testRunner(t, db) })
 	recording := model.Recording{OriginalFilename: "sample.wav", StoragePath: "test/sample.wav", FileSize: 42}
 	if err := db.Create(&recording).Error; err != nil {
 		t.Fatal(err)

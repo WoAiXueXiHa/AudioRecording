@@ -61,6 +61,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen failed: %v", err)
 	}
+	// 后台任务独立于每一个 HTTP 请求；只有数据库提交后的 pending 行才会被领取。
+	runner := recording.NewRunner(uploads, recording.NewMockTranscriber())
+	go runner.Run(context.Background())
 	log.Printf("HTTP server ready on %s", listener.Addr())
 	// server 接收请求
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
