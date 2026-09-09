@@ -34,6 +34,7 @@ func NewRouter(uploads *recording.Service) *gin.Engine {
 	router.GET("/health", health)
 	router.POST("/v1/recordings", uploadRecording(uploads))
 	router.GET("/v1/tasks/:id", getTask(uploads))
+	router.POST("/v1/tasks/:id/retry", retryTask(uploads))
 	router.GET("/v1/recordings/:id", getRecording(uploads))
 	router.GET("/v1/recordings", listRecordings(uploads))
 	router.NoRoute(func(c *gin.Context) {
