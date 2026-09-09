@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"audiorecording/internal/database"
@@ -15,29 +19,35 @@ import (
 )
 
 func main() {
-	// 读取配置
+	// run 返回后资源清理已完成；不要在持有连接的函数中直接 log.Fatal 跳过 defer。
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
+	// 读取配置：没有设置使用默认值，显式空地址拒绝启动。
 	addr, configured := os.LookupEnv("HTTP_ADDR")
 	if !configured {
 		addr = "127.0.0.1:8080"
 	}
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
-		log.Fatal("HTTP_ADDR cannot be empty")
+		return errors.New("HTTP_ADDR cannot be empty")
 	}
 	if _, _, err := net.SplitHostPort(addr); err != nil {
-		log.Fatalf("invalid HTTP_ADDR %q: %v", addr, err)
+		return fmt.Errorf("invalid HTTP_ADDR %q: %w", addr, err)
 	}
-
 	// 在接收请求前检查数据库和存储目录；迁移仍由 SQL 文件显式执行。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	db, err := database.Open(ctx, os.Getenv("MYSQL_DSN"))
 	cancel()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	pool, err := db.DB()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer pool.Close()
 	uploadDir, configured := os.LookupEnv("UPLOAD_DIR")
@@ -46,33 +56,56 @@ func main() {
 	}
 	uploads, err := recording.NewService(db, uploadDir)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-
-	// 摘要必须调用真实 LLM；缺少密钥在启动时明确失败，不静默降级为 Mock。
+	// 缺少真实 LLM 密钥明确失败，不静默降级为 Mock。
 	llm, err := recording.NewDeepSeekClient(os.Getenv("DEEPSEEK_API_KEY"), os.Getenv("DEEPSEEK_BASE_URL"), os.Getenv("DEEPSEEK_MODEL"))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-
-	// 创建 HTTP 服务，请求交给 Gin
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           httpapi.NewRouter(uploads),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
-	// 监听端口
+	server := &http.Server{Addr: addr, Handler: httpapi.NewRouter(uploads), ReadHeaderTimeout: 5 * time.Second}
+	// 先确认端口可监听，再处理遗留任务，避免同端口误启动第二实例时改动任务。
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("listen failed: %v", err)
+		return fmt.Errorf("listen failed: %w", err)
 	}
-	// 后台任务独立于每一个 HTTP 请求；只有数据库提交后的 pending 行才会被领取。
+	defer listener.Close()
+	if err := uploads.InterruptTasks(context.Background()); err != nil {
+		return fmt.Errorf("mark interrupted tasks: %w", err)
+	}
+	// 服务级 context 控制后台生命周期，独立于任何一个 HTTP 请求。
+	serviceCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	runner := recording.NewRunner(uploads, recording.NewMockTranscriber(), llm)
-	go runner.Run(context.Background())
+	runnerDone := make(chan struct{})
+	go func() { runner.Run(serviceCtx); runner.Wait(); close(runnerDone) }()
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
 	log.Printf("HTTP server ready on %s", listener.Addr())
-	// server 接收请求
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("HTTP server failed: %v", err)
+	var serveErr error
+	select {
+	case <-serviceCtx.Done():
+	case serveErr = <-serveDone:
 	}
+	stop() // 停止领取并取消在途外部调用，失败落库仍使用其独立短 context。
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	shutdownCancel()
+	if shutdownErr != nil {
+		_ = server.Close()
+	}
+	// Run 已停止后才 Wait，避免 WaitGroup.Add 与 Wait 的启动竞争。
+	select {
+	case <-runnerDone:
+	case <-time.After(10 * time.Second):
+		log.Print("background shutdown timed out; unfinished tasks will be marked failed on next startup")
+	}
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return serveErr
+	}
+	if shutdownErr != nil {
+		return fmt.Errorf("HTTP shutdown: %w", shutdownErr)
+	}
+	log.Print("HTTP server stopped")
+	return nil
 }

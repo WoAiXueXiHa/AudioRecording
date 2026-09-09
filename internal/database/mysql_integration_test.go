@@ -74,6 +74,7 @@ func TestMySQLMapping(t *testing.T) {
 	t.Run("summary_runner", func(t *testing.T) { testSummaryRunner(t, db) })
 	t.Run("retry", func(t *testing.T) { testRetry(t, db) })
 	t.Run("delete", func(t *testing.T) { testDelete(t, db) })
+	t.Run("interrupt", func(t *testing.T) { testInterruptTasks(t, db) })
 	recording := model.Recording{OriginalFilename: "sample.wav", StoragePath: "test/sample.wav", FileSize: 42}
 	if err := db.Create(&recording).Error; err != nil {
 		t.Fatal(err)
