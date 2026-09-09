@@ -36,6 +36,7 @@ func NewRouter(uploads *recording.Service) *gin.Engine {
 	router.GET("/v1/tasks/:id", getTask(uploads))
 	router.POST("/v1/tasks/:id/retry", retryTask(uploads))
 	router.GET("/v1/recordings/:id", getRecording(uploads))
+	router.DELETE("/v1/recordings/:id", deleteRecording(uploads))
 	router.GET("/v1/recordings", listRecordings(uploads))
 	router.NoRoute(func(c *gin.Context) {
 		writeError(c, http.StatusNotFound, "not_found", "route not found")

@@ -23,7 +23,8 @@ try:
     for _ in range(60):
         result = subprocess.run([
             "docker", "exec", "-e", "MYSQL_PWD=" + password, name,
-            "mysql", "-uroot", "-N", "-e", "SELECT 1",
+            # 初始化临时 mysqld 仅开放 socket；TCP 成功才表示最终服务已就绪。
+            "mysql", "-h127.0.0.1", "--protocol=TCP", "-uroot", "-N", "-e", "SELECT 1",
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
         if result.returncode == 0:
             break
