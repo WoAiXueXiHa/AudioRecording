@@ -3,6 +3,8 @@ package httpapi
 import (
 	"net/http"
 
+	"audiorecording/internal/recording"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,7 +19,7 @@ type errorDetail struct {
 	Message string `json:"message"`
 }
 
-func NewRouter() *gin.Engine {
+func NewRouter(uploads *recording.Service) *gin.Engine {
 	router := gin.New()
 	// 使用直接连接的地址判断客户端 IP
 	if err := router.SetTrustedProxies(nil); err != nil {
@@ -28,8 +30,9 @@ func NewRouter() *gin.Engine {
 		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}))
 
-	// 注册 GET /health
+	// 注册请求
 	router.GET("/health", health)
+	router.POST("/v1/recordings", uploadRecording(uploads))
 	router.NoRoute(func(c *gin.Context) {
 		writeError(c, http.StatusNotFound, "not_found", "route not found")
 	})

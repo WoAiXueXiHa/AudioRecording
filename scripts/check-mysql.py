@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""使用一次性 MySQL 容器运行映射测试；不连接本机业务数据库。"""
+"""使用一次性 MySQL 容器运行映射、上传与查询测试；不连接本机业务数据库。"""
 import json
 import os
 from pathlib import Path

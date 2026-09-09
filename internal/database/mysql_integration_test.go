@@ -111,6 +111,7 @@ func TestMySQLMapping(t *testing.T) {
 	expectMySQLError(t, db.Create(&model.Task{RecordingID: recording.ID}).Error, 1062)
 	expectMySQLError(t, db.Create(&model.Task{RecordingID: recording.ID + 100}).Error, 1452)
 	expectMySQLError(t, db.Delete(&model.Recording{}, recording.ID).Error, 1451)
+	t.Run("upload", func(t *testing.T) { testUpload(t, db) })
 }
 
 func expectMySQLError(t *testing.T, err error, number uint16) {

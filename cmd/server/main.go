@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
@@ -8,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"audiorecording/internal/database"
 	"audiorecording/internal/httpapi"
+	"audiorecording/internal/recording"
 )
 
 func main() {
@@ -25,10 +28,31 @@ func main() {
 		log.Fatalf("invalid HTTP_ADDR %q: %v", addr, err)
 	}
 
+	// 在接收请求前检查数据库和存储目录；迁移仍由 SQL 文件显式执行。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	db, err := database.Open(ctx, os.Getenv("MYSQL_DSN"))
+	cancel()
+	if err != nil {
+		log.Fatal(err)
+	}
+	pool, err := db.DB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Close()
+	uploadDir, configured := os.LookupEnv("UPLOAD_DIR")
+	if !configured {
+		uploadDir = "./uploads"
+	}
+	uploads, err := recording.NewService(db, uploadDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// 创建 HTTP 服务，请求交给 Gin
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewRouter(),
+		Handler:           httpapi.NewRouter(uploads),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
