@@ -1,0 +1,47 @@
+services:
+  mysql:
+    image: mysql:8.4.10
+    environment:
+      MYSQL_DATABASE: audio_recording
+      MYSQL_USER: audio
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-audio_local_dev}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-audio_root_local_dev}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 官方镜像仅在空数据目录初始化时执行，不会覆盖已有数据库。
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      # TCP 避免把初始化时的临时 socket 服务误判为就绪。
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql -h127.0.0.1 --protocol=TCP -uroot -N -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+    stop_grace_period: 30s
+  api:
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+    environment:
+      HTTP_ADDR: 0.0.0.0:8080
+      MYSQL_DSN: audio:${MYSQL_PASSWORD:-audio_local_dev}@tcp(mysql:3306)/audio_recording
+      UPLOAD_DIR: /app/uploads
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY in environment or .env}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    stop_grace_period: 20s
+volumes:
+  mysql_data:
+  uploads:

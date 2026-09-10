@@ -1,0 +1,8 @@
+.git
+.docs
+.env
+.env.*
+uploads
+data
+bin
+*.log
