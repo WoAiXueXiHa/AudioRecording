@@ -1,0 +1,43 @@
+# 可用 VS Code REST Client 打开。先启动服务，并在本文件旁放一份 sample.wav。
+# 上传成功后将两个 ID 分别填入下方变量；两个 ID 不保证相等。
+@baseUrl = http://127.0.0.1:8080
+@recordingId = 1
+@taskId = 1
+
+### HTTP 健康检查
+GET {{baseUrl}}/health
+
+### 上传，预期201；本地sample.wav只用于运行，不提交Git
+POST {{baseUrl}}/v1/recordings
+Content-Type: multipart/form-data; boundary=AudioRecordingBoundary
+
+--AudioRecordingBoundary
+Content-Disposition: form-data; name="file"; filename="sample.wav"
+Content-Type: audio/wav
+
+< ./sample.wav
+--AudioRecordingBoundary--
+
+### 查询任务，反复执行观察 transcribing/summarizing/done/failed
+GET {{baseUrl}}/v1/tasks/{{taskId}}
+
+### 查询详情，done时包含真实摘要
+GET {{baseUrl}}/v1/recordings/{{recordingId}}
+
+### 录音列表
+GET {{baseUrl}}/v1/recordings?page=1&page_size=20
+
+### 手动重试，failed为202；其它状态409，不存在404
+POST {{baseUrl}}/v1/tasks/{{taskId}}/retry
+
+### 删除，done/failed为204；活动状态409，不存在404
+DELETE {{baseUrl}}/v1/recordings/{{recordingId}}
+
+### 参数错误，预期400
+GET {{baseUrl}}/v1/recordings?page=0
+
+### 非法ID，预期400
+GET {{baseUrl}}/v1/tasks/0
+
+### 不存在，预期404（假设未使用这个ID）
+GET {{baseUrl}}/v1/tasks/18446744073709551615
