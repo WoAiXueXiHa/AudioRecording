@@ -21,14 +21,18 @@ type Runner struct {
 	asr     Transcriber
 	llm     Summarizer
 	workers sync.WaitGroup
+	slots   chan struct{}
 }
 
-func NewRunner(service *Service, asr Transcriber, summaries ...Summarizer) *Runner {
-	r := &Runner{service: service, asr: asr}
+func NewRunner(service *Service, asr Transcriber, concurrency int, summaries ...Summarizer) (*Runner, error) {
+	if concurrency <= 0 {
+		return nil, errors.New("worker concurrency must be positive")
+	}
+	r := &Runner{service: service, asr: asr, slots: make(chan struct{}, concurrency)}
 	if len(summaries) > 0 {
 		r.llm = summaries[0]
 	}
-	return r
+	return r, nil
 }
 
 // Run 在一个 goroutine 中调用；停止后再调用 Wait，避免领取任务与等待互相竞争。
@@ -64,22 +68,30 @@ func (r *Runner) dispatch(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		select {
+		case r.slots <- struct{}{}:
+		default:
+			return
+		}
 		now := time.Now().UTC()
 		// 查询和领取不是一个操作：再次限定 pending，只有 RowsAffected=1 才获得执行权。
 		claimed := r.service.db.WithContext(dbCtx).Model(&model.Task{}).
 			Where("id = ? AND status = ?", task.ID, model.TaskPending).
 			Updates(map[string]any{"status": model.TaskTranscribing, "started_at": now})
 		if claimed.Error != nil {
+			<-r.slots
 			log.Printf("task claim failed task_id=%d error=%v", task.ID, claimed.Error)
 			continue
 		}
 		if claimed.RowsAffected != 1 {
+			<-r.slots
 			continue
 		}
 		log.Printf("task transition recording_id=%d task_id=%d from=pending to=transcribing", task.RecordingID, task.ID)
 		r.workers.Add(1)
 		go func() {
 			defer r.workers.Done()
+			defer func() { <-r.slots }()
 			r.transcribe(ctx, task)
 		}()
 	}

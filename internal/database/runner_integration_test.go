@@ -47,7 +47,10 @@ func testRunner(t *testing.T, db *gorm.DB) {
 	start := func(t *testing.T, asr recording.Transcriber) context.CancelFunc {
 		t.Helper()
 		ctx, cancel := context.WithCancel(context.Background())
-		runner := recording.NewRunner(service, asr)
+		runner, err := recording.NewRunner(service, asr, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
 		done := make(chan struct{})
 		go func() {
 			defer close(done)

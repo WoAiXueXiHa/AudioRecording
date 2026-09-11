@@ -102,12 +102,15 @@ func testRetry(t *testing.T, db *gorm.DB) {
 		if cleared != 1 {
 			t.Fatal("retry left stale recording results")
 		}
-		runner := recording.NewRunner(service,
-			transcribeFunc(func(context.Context, string) (string, error) { return "new transcript", nil }),
+		runner, err := recording.NewRunner(service,
+			transcribeFunc(func(context.Context, string) (string, error) { return "new transcript", nil }), 3,
 			summarizeFunc(func(context.Context, string) (recording.SummaryResult, error) {
 				return recording.SummaryResult{Summary: "new summary", KeyPoints: []string{}, Todos: []string{}}, nil
 			}),
 		)
+		if err != nil {
+			t.Fatal(err)
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { defer close(done); runner.Run(ctx); runner.Wait() }()

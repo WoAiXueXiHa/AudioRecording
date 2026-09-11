@@ -24,6 +24,7 @@ services:
         GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
     environment:
       HTTP_ADDR: 0.0.0.0:8080
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
       MYSQL_DSN: audio:${MYSQL_PASSWORD:-audio_local_dev}@tcp(mysql:3306)/audio_recording
       UPLOAD_DIR: /app/uploads
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY in environment or .env}

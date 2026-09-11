@@ -83,12 +83,15 @@ func testInterruptTasks(t *testing.T, db *gorm.DB) {
 	}
 
 	// pending 仍由普通轮询执行；已中断任务必须经过手动 Retry 才能再次执行。
-	runner := recording.NewRunner(service,
-		transcribeFunc(func(context.Context, string) (string, error) { return "fresh transcript", nil }),
+	runner, err := recording.NewRunner(service,
+		transcribeFunc(func(context.Context, string) (string, error) { return "fresh transcript", nil }), 3,
 		summarizeFunc(func(context.Context, string) (recording.SummaryResult, error) {
 			return recording.SummaryResult{Summary: "fresh summary", KeyPoints: []string{}, Todos: []string{}}, nil
 		}),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); runner.Run(ctx); runner.Wait() }()

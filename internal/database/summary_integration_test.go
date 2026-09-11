@@ -79,7 +79,10 @@ func testSummaryRunner(t *testing.T, db *gorm.DB) {
 				}
 				return recording.SummaryResult{Summary: "周五交付服务。", KeyPoints: []string{"验证接口"}, Todos: []string{}}, nil
 			})
-			runner := recording.NewRunner(service, asr, llm)
+			runner, err := recording.NewRunner(service, asr, 3, llm)
+			if err != nil {
+				t.Fatal(err)
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			done := make(chan struct{})
 			go func() {

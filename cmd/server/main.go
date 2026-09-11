@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -25,7 +26,23 @@ func main() {
 	}
 }
 
+func workerConcurrency() (int, error) {
+	raw, ok := os.LookupEnv("WORKER_CONCURRENCY")
+	if !ok {
+		return 3, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, errors.New("WORKER_CONCURRENCY must be a positive integer")
+	}
+	return n, nil
+}
+
 func run() error {
+	concurrency, err := workerConcurrency()
+	if err != nil {
+		return err
+	}
 	// 读取配置，决定在哪个地址接收请求；没有设置使用默认值，显式空地址拒绝启动。
 	addr, configured := os.LookupEnv("HTTP_ADDR")
 	if !configured {
@@ -81,7 +98,11 @@ func run() error {
 	// 服务级 context 控制后台生命周期，独立于任何一个 HTTP 请求。
 	serviceCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	runner := recording.NewRunner(uploads, recording.NewMockTranscriber(), llm)
+	runner, err := recording.NewRunner(uploads, recording.NewMockTranscriber(), concurrency, llm)
+	if err != nil {
+		return err
+	}
+	log.Printf("worker concurrency=%d", concurrency)
 	runnerDone := make(chan struct{})
 	go func() { runner.Run(serviceCtx); runner.Wait(); close(runnerDone) }()
 	serveDone := make(chan error, 1)
