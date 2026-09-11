@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"audiorecording/internal/recording"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,8 +14,8 @@ func uploadRecording(uploads *recording.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 限制整个请求体，给 multipart 边界和表单头额外留 1 MiB。
 		// ParseMultipartForm 的 8 MiB 只是内存阈值，超过后落临时磁盘，不是上传上限。
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, recording.MaxFileBytes+(1<<20))
-		err := c.Request.ParseMultipartForm(8 << 20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, recording.MaxFileBytes+(1<<20)) // 请求体上限 51 MiB
+		err := c.Request.ParseMultipartForm(8 << 20)                                                   // 内存阈值 8 MiB
 		if c.Request.MultipartForm != nil {
 			defer c.Request.MultipartForm.RemoveAll() // 清理解析器的临时文件，与业务音频文件不同。
 		}
@@ -44,7 +45,7 @@ func uploadRecording(uploads *recording.Service) gin.HandlerFunc {
 			return
 		}
 		defer src.Close()
-		// 使用标准 context 传播请求取消；Gin Context 留在 HTTP 层。
+		// 使用标准 context 传播请求取消，Gin Context 留在 HTTP 层。
 		result, err := uploads.Upload(c.Request.Context(), files[0].Filename, src)
 		switch {
 		case errors.Is(err, recording.ErrInvalidFile):

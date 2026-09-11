@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"audiorecording/internal/model"
+
 	"gorm.io/gorm"
 )
 
@@ -48,10 +49,10 @@ func NewService(db *gorm.DB, dir string) (*Service, error) {
 	return &Service{db: db, dir: absolute}, nil
 }
 
-// Upload 不依赖 Gin，只接收请求 context、展示名称和文件内容。
+// Upload 不依赖 Gin，只接收请求 context、展示名称和文件内容
 func (s *Service) Upload(ctx context.Context, name string, src io.Reader) (UploadResult, error) {
 	var result UploadResult
-	// 原名只作展示，不拼入存储路径；兼容客户端传来的 Windows 分隔符。
+	// 原名只作展示，不拼入存储路径；兼容客户端传来的 Windows 分隔符
 	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
 	ext := strings.ToLower(filepath.Ext(name))
 	if !utf8.ValidString(name) || utf8.RuneCountInString(name) > 255 {
@@ -76,7 +77,7 @@ func (s *Service) Upload(ctx context.Context, name string, src io.Reader) (Uploa
 			}
 		}
 	}()
-	// 多读一个字节才能区分“恰好达到上限”和“已经超限”。不信任客户端声明的大小。
+	// 多读一个字节才能区分“恰好达到上限”和“已经超限”，不信任客户端声明的大小
 	size, err := io.Copy(file, io.LimitReader(src, MaxFileBytes+1))
 	if err != nil {
 		return result, fmt.Errorf("save audio file: %w", err)
@@ -94,22 +95,22 @@ func (s *Service) Upload(ctx context.Context, name string, src io.Reader) (Uploa
 	recording := model.Recording{OriginalFilename: name, StoragePath: file.Name(), FileSize: uint64(size)}
 	task := model.Task{Status: model.TaskPending}
 	// 文件已保存才开始短事务，避免复制大文件时占着数据库连接。
-	// 显式 Begin/Commit 让 INSERT 失败和 COMMIT 结果不确定能分别处理。
+	// 显式 Begin/Commit 让 INSERT 失败和 COMMIT 结果不确定能分别处理
 	tx := s.db.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return result, fmt.Errorf("begin upload: %w", tx.Error)
 	}
-	defer tx.Rollback() // 成功 Commit 后无效；提前返回或 panic 时兜底回滚。
-	// 两次写入必须都使用 tx；使用 s.db 会跑到事务外。
+	defer tx.Rollback() // 成功 Commit 后无效；提前返回或 panic 时兜底回滚
+	// 两次写入必须都使用 tx；使用 s.db 会跑到事务外
 	if err := tx.Create(&recording).Error; err != nil {
 		return result, fmt.Errorf("insert recording: %w", err)
 	}
-	task.RecordingID = recording.ID // 第一次 INSERT 回填的主键，不假设两个 ID 相同。
+	task.RecordingID = recording.ID // 第一次 INSERT 回填的主键，不假设两个 ID 相同
 	if err := tx.Create(&task).Error; err != nil {
 		return result, fmt.Errorf("insert task: %w", err)
 	}
 	if err := tx.Commit().Error; err != nil {
-		// 连接中断可能发生在数据库提交后。保留文件，供核验，不能一律删除。
+		// 连接中断可能发生在数据库提交后。保留文件，供核验，不能一律删除
 		keepFile = true
 		log.Printf("upload commit uncertain recording_id=%d task_id=%d path=%q error=%v", recording.ID, task.ID, file.Name(), err)
 		return result, ErrCommitUnknown

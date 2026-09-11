@@ -26,7 +26,7 @@ func main() {
 }
 
 func run() error {
-	// 读取配置：没有设置使用默认值，显式空地址拒绝启动。
+	// 读取配置，决定在哪个地址接收请求；没有设置使用默认值，显式空地址拒绝启动。
 	addr, configured := os.LookupEnv("HTTP_ADDR")
 	if !configured {
 		addr = "127.0.0.1:8080"
@@ -63,7 +63,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: addr, Handler: httpapi.NewRouter(uploads), ReadHeaderTimeout: 5 * time.Second}
+	// 创建 HTTP 服务，请求交给 Gin
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           httpapi.NewRouter(uploads),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	// 先确认端口可监听，再处理遗留任务，避免同端口误启动第二实例时改动任务。
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

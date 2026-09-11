@@ -25,7 +25,7 @@ func NewRouter(uploads *recording.Service) *gin.Engine {
 	if err := router.SetTrustedProxies(nil); err != nil {
 		panic(err)
 	}
-	// 注册日志
+	// 公共处理逻辑，中间件
 	router.Use(gin.Logger(), gin.CustomRecovery(func(c *gin.Context, recovered any) {
 		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}))
@@ -38,6 +38,7 @@ func NewRouter(uploads *recording.Service) *gin.Engine {
 	router.GET("/v1/recordings/:id", getRecording(uploads))
 	router.DELETE("/v1/recordings/:id", deleteRecording(uploads))
 	router.GET("/v1/recordings", listRecordings(uploads))
+	// 没匹配到路由时的处理
 	router.NoRoute(func(c *gin.Context) {
 		writeError(c, http.StatusNotFound, "not_found", "route not found")
 	})
