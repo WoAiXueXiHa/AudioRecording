@@ -1,0 +1,750 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AudioRecording P0 API",
+    "version": "1.0.0",
+    "description": "Apifox导入调试。无需鉴权。导入后配置真实服务地址，手动选择本机上传文件并填写实际ID。"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "本地服务"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "健康检查",
+        "description": "仅检查HTTP服务，不检查数据库或模型服务。",
+        "tags": [
+          "健康检查"
+        ],
+        "responses": {
+          "200": {
+            "description": "健康检查",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings": {
+      "post": {
+        "operationId": "uploadRecording",
+        "summary": "上传音频",
+        "description": "手动选择本机test.mp3。仅一个非空文件，最大50 MiB，扩展名wav/mp3/m4a/aac，不区分大小写；请求体最大51 MiB。当前转写为Mock，不识别真实语音。保存响应的两个ID。",
+        "tags": [
+          "录音"
+        ],
+        "responses": {
+          "201": {
+            "description": "上传音频",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResult"
+                },
+                "example": {
+                  "recording_id": 1,
+                  "task_id": 1,
+                  "status": "pending"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或文件错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "文件或请求体超限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "内部错误；上传也可能为upload_result_unknown，请先核验再重传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "选择本机音频文件"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listRecordings",
+        "summary": "分页录音列表",
+        "description": "按创建时间和ID倒序；可将page改为0测试400。",
+        "tags": [
+          "录音"
+        ],
+        "responses": {
+          "200": {
+            "description": "分页录音列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或文件错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "内部错误；上传也可能为upload_result_unknown，请先核验再重传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1,
+              "example": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20
+            }
+          }
+        ]
+      }
+    },
+    "/v1/recordings/{id}": {
+      "get": {
+        "operationId": "getRecording",
+        "summary": "查询录音详情",
+        "description": "使用recording_id。done后查看transcript、summary、key_points和todos；未产生的结果可能为null。",
+        "tags": [
+          "录音"
+        ],
+        "responses": {
+          "200": {
+            "description": "查询录音详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或文件错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "资源不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "内部错误；上传也可能为upload_result_unknown，请先核验再重传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1,
+              "description": "正整数uint64，录音ID与任务ID不保证相等"
+            },
+            "description": "填入上传响应的task_id或recording_id。0可测试400，未使用ID可测试404。"
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteRecording",
+        "summary": "删除录音",
+        "description": "仅done/failed可删除，活动状态409。会删除文件和关联任务，请用可丢弃数据。删除后两资源查询均404。无请求体和成功响应体。",
+        "tags": [
+          "录音"
+        ],
+        "responses": {
+          "204": {
+            "description": "删除录音"
+          },
+          "400": {
+            "description": "参数或文件错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "资源不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "当前状态不允许操作",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "内部错误；上传也可能为upload_result_unknown，请先核验再重传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1,
+              "description": "正整数uint64，录音ID与任务ID不保证相等"
+            },
+            "description": "填入上传响应的task_id或recording_id。0可测试400，未使用ID可测试404。"
+          }
+        ]
+      }
+    },
+    "/v1/tasks/{id}": {
+      "get": {
+        "operationId": "getTask",
+        "summary": "查询任务进度",
+        "description": "使用task_id。轮询观察pending→transcribing→summarizing→done，失败为failed，查看failed_stage和error_code。",
+        "tags": [
+          "任务"
+        ],
+        "responses": {
+          "200": {
+            "description": "查询任务进度",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或文件错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "资源不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "内部错误；上传也可能为upload_result_unknown，请先核验再重传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1,
+              "description": "正整数uint64，录音ID与任务ID不保证相等"
+            },
+            "description": "填入上传响应的task_id或recording_id。0可测试400，未使用ID可测试404。"
+          }
+        ]
+      }
+    },
+    "/v1/tasks/{id}/retry": {
+      "post": {
+        "operationId": "retryTask",
+        "summary": "重试失败任务",
+        "description": "仅failed可重试，其他状态409。复用任务ID，清空旧结果与错误，retry_count加1，从转写重新执行。无请求体。",
+        "tags": [
+          "任务"
+        ],
+        "responses": {
+          "202": {
+            "description": "重试失败任务",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResult"
+                },
+                "example": {
+                  "recording_id": 1,
+                  "task_id": 1,
+                  "status": "pending"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数或文件错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "资源不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "当前状态不允许操作",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "内部错误；上传也可能为upload_result_unknown，请先核验再重传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1,
+              "description": "正整数uint64，录音ID与任务ID不保证相等"
+            },
+            "description": "填入上传响应的task_id或recording_id。0可测试400，未使用ID可测试404。"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "UploadResult": {
+        "type": "object",
+        "required": [
+          "recording_id",
+          "task_id",
+          "status"
+        ],
+        "properties": {
+          "recording_id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等"
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          }
+        }
+      },
+      "RecordingItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "original_filename",
+          "file_size",
+          "created_at",
+          "task_id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等"
+          },
+          "original_filename": {
+            "type": "string"
+          },
+          "file_size": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "transcribing",
+              "summarizing",
+              "done",
+              "failed"
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "RecordingDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "original_filename",
+          "file_size",
+          "created_at",
+          "task_id",
+          "status",
+          "transcript",
+          "summary",
+          "key_points",
+          "todos",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等"
+          },
+          "original_filename": {
+            "type": "string"
+          },
+          "file_size": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "transcribing",
+              "summarizing",
+              "done",
+              "failed"
+            ],
+            "nullable": true
+          },
+          "transcript": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "key_points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "todos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TaskDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "recording_id",
+          "status",
+          "retry_count",
+          "failed_stage",
+          "error_code",
+          "error_message",
+          "started_at",
+          "finished_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等"
+          },
+          "recording_id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1,
+            "description": "正整数uint64，录音ID与任务ID不保证相等"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "transcribing",
+              "summarizing",
+              "done",
+              "failed"
+            ]
+          },
+          "retry_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed_stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "error_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RecordingPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecordingItem"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}
