@@ -174,7 +174,10 @@ def main():
                        DEEPSEEK_BASE_URL=f'http://127.0.0.1:{stub.server_port}', DEEPSEEK_MODEL='test-model')
             start_server()
             expect('GET', '/health', 200)
-            expect('GET', '/', 404)
+            with HTTP.open(base + '/', timeout=10) as response:
+                require(response.status == 200 and 'text/html' in response.headers['Content-Type'], '工作台页面不可用')
+                require('录音工作台' in response.read().decode(), '工作台页面内容错误')
+            expect('GET', '/not-found', 404)
             for method, path in [('GET', '/v1/tasks/0'), ('GET', '/v1/recordings/invalid'),
                                  ('GET', '/v1/recordings?page=0'), ('POST', '/v1/tasks/x/retry'),
                                  ('DELETE', '/v1/recordings/x')]:

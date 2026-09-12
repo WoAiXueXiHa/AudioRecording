@@ -30,6 +30,8 @@ func NewRouter(uploads *recording.Service) *gin.Engine {
 		writeError(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}))
 
+	registerWeb(router)
+
 	// 注册请求
 	router.GET("/health", health)
 	router.POST("/v1/recordings", uploadRecording(uploads))

@@ -33,3 +33,25 @@ func TestMutationRoutesRejectInvalidID(t *testing.T) {
 		})
 	}
 }
+
+// 页面资源必须随二进制可用，同时保留 API 的 JSON 404。
+func TestWebAssets(t *testing.T) {
+	router := NewRouter(nil)
+	for _, tc := range []struct{ path, contentType string }{
+		{"/", "text/html; charset=utf-8"},
+		{"/assets/style.css", "text/css; charset=utf-8"},
+		{"/assets/app.js", "text/javascript; charset=utf-8"},
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if response.Code != 200 || response.Header().Get("Content-Type") != tc.contentType || response.Body.Len() == 0 {
+			t.Fatalf("asset %s: status=%d type=%s", tc.path, response.Code, response.Header().Get("Content-Type"))
+		}
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/not-found", nil))
+	var body errorResponse
+	if response.Code != 404 || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Error.Code != "not_found" {
+		t.Fatalf("unknown route must return JSON 404: %s", response.Body.String())
+	}
+}

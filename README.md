@@ -55,6 +55,10 @@ docker compose up -d
 
 数据库和音频保存在 Docker 卷中，日常停止服务不要使用 `docker compose down -v`，它会删除数据卷。
 
+## 网页工作台
+
+浏览器打开服务根地址即可使用：选择或拖入音频、上传、查看自动更新的任务状态，点击录音查看摘要和转写文本。失败任务提供重试，终态录音提供删除确认。支持手机布局，无需安装前端依赖，页面随 Go 二进制发布。
+
 ## 接口调试
 
 Apifox 导入 [docs/apifox.openapi.json](docs/apifox.openapi.json)，服务地址设置为 `http://127.0.0.1:8080`。也可以使用 [api.http](api.http) 或下面的 curl 命令。
@@ -168,7 +172,7 @@ python3 scripts/check-all.py
 curl --noproxy '*' http://192.144.168.226:8080/health
 ```
 
-根目录 Compose 用于本地运行，仍只绑定回环地址；公网部署使用 `deploy/compose.yaml`。服务没有前端页面，根路径 `/` 返回404；健康检查使用 `/health`。服务器使用独立数据库，需要重新上传并使用新返回的 ID。
+根目录 Compose 用于本地运行，仍只绑定回环地址；公网部署使用 `deploy/compose.yaml`。根路径 `/` 提供录音工作台，支持上传、状态查询、摘要查看、重试和终态删除；健康检查使用 `/health`。服务器使用独立数据库，需要重新上传并使用新返回的 ID。
 
 ## 已知限制与未完成项
 

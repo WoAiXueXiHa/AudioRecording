@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>声笺 · 录音工作台</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">▥ <span>声笺</span><small>VOICE NOTES</small></a
+      ><span class="online">● 录音工作台</span>
+    </header>
+    <main>
+      <div class="intro">
+        <span class="eyebrow">把声音，整理成清晰的思路</span>
+        <h1>留住声音里的重点。</h1>
+        <p>上传一段录音，让摘要、要点与待办井然有序。</p>
+      </div>
+      <div class="workspace">
+        <aside>
+          <section class="card upload">
+            <div class="section-title">
+              <h2>新建录音</h2>
+              <span>01</span>
+            </div>
+            <form id="upload-form">
+              <label class="drop" id="drop" for="file"
+                ><span class="upload-icon">↑</span
+                ><strong id="file-label">点击选择或拖入音频</strong
+                ><span>MP3 / WAV / M4A / AAC · 最大 50 MiB</span
+                ><input
+                  id="file"
+                  type="file"
+                  accept=".mp3,.wav,.m4a,.aac" /></label
+              ><button class="primary" id="upload-button" type="submit">
+                上传并生成摘要 <span>↗</span>
+              </button>
+            </form>
+            <p class="note">
+              演示说明：转写使用模拟文本，不识别真实音频；摘要由真实 AI 生成。
+            </p>
+          </section>
+          <section class="tip">
+            <span>关于处理</span>
+            <h3>稍等片刻，重点就绪。</h3>
+            <p>模拟转写约需 5–15 秒，随后生成摘要。任务失败后可以手动重试。</p>
+            <div class="steps">上传 <b>→</b> 转写 <b>→</b> 摘要</div>
+          </section>
+        </aside>
+        <section class="card library">
+          <div class="section-title">
+            <div>
+              <h2>我的录音 <small id="count">—</small></h2>
+              <p>最新录音优先 · 处理状态自动更新</p>
+            </div>
+            <button id="refresh" class="quiet">刷新 ↻</button>
+          </div>
+          <div id="list" aria-live="polite">
+            <div class="empty">正在加载录音…</div>
+          </div>
+          <div class="pagination">
+            <button id="prev" class="quiet">← 上一页</button
+            ><span id="page-label">第 1 页</span
+            ><button id="next" class="quiet">下一页 →</button>
+          </div>
+        </section>
+      </div>
+      <footer>
+        声笺 / 让每次记录都有回响 <span>Mock 转写 · AI 摘要</span>
+      </footer>
+    </main>
+    <div id="message" role="status" hidden></div>
+    <dialog id="detail">
+      <div class="dialog-head">
+        <span class="eyebrow">录音详情</span
+        ><button id="close" class="quiet" aria-label="关闭详情">✕</button>
+      </div>
+      <h2 id="detail-title"></h2>
+      <div id="detail-body"></div>
+    </dialog>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
