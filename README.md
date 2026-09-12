@@ -1,8 +1,18 @@
-# 录音转写服务
+# 声笺 · 录音转写与智能摘要
 
 使用 Go、Gin、GORM 和 MySQL 实现。上传音频后返回任务 ID，后台处理转写和摘要，通过接口查询进度与结果。
 
 转写按题目要求使用 Mock：等待5～15秒，约20%概率失败，成功返回固定会议文本，**不会识别音频的真实内容**。摘要调用真实 DeepSeek，返回一句话摘要、要点和待办。
+
+## 在线体验
+
+- **网页工作台：[http://192.144.168.226:8080](http://192.144.168.226:8080)**
+- 健康检查：[/health](http://192.144.168.226:8080/health)
+- API 调试文件：[Apifox / OpenAPI](docs/apifox.openapi.json)、[api.http](api.http)
+
+打开网页，选择音频并上传，等待任务完成后点击“查看”阅读摘要。模拟转写有约20%的失败概率，失败后可点击“重试”。公网演示无需登录，请使用测试音频。
+
+2026-09-12 已通过完整自动化回归及公网真实 DeepSeek 验收，包含网页上传、结果查看和删除，详见 [验收记录](docs/public-acceptance.md)。
 
 ## 已实现的功能
 
@@ -15,11 +25,15 @@
 
 额外实现了后台并发限制。`WORKER_CONCURRENCY` 默认是3，使用缓冲 channel 控制同时执行的任务数，数据库中的 pending 任务作为队列。名额覆盖转写和摘要整个过程，任务结束后释放，满载时不继续领取。
 
-## 启动
+已实现的题目加分项：**并发控制、单元／集成测试、公网部署**。额外提供网页工作台。重启后处理中任务需要手动重试，不计为完整自动恢复。
+
+## 本地一键启动
 
 需要 Docker 和 Docker Compose。首次构建需要联网下载镜像和依赖。
 
 ```bash
+git clone https://github.com/WoAiXueXiHa/AudioRecording.git
+cd AudioRecording
 cp .env.example .env
 ```
 
@@ -30,6 +44,8 @@ docker compose up --build -d
 docker compose ps
 curl --noproxy '*' http://127.0.0.1:8080/health
 ```
+
+启动后浏览器打开 [http://127.0.0.1:8080](http://127.0.0.1:8080) 即可使用网页工作台。
 
 返回 `{"status":"ok"}` 表示 HTTP 服务已启动，模型是否可用需要通过上传任务验证。默认模型是 `deepseek-v4-flash`，没有密钥会启动失败。
 
@@ -61,7 +77,7 @@ docker compose up -d
 
 ## 接口调试
 
-Apifox 导入 [docs/apifox.openapi.json](docs/apifox.openapi.json)，服务地址设置为 `http://127.0.0.1:8080`。也可以使用 [api.http](api.http) 或下面的 curl 命令。
+Apifox 导入 [docs/apifox.openapi.json](docs/apifox.openapi.json)，本地服务地址设置为 `http://127.0.0.1:8080`，公网调试设置为 `http://192.144.168.226:8080`。也可以使用 [api.http](api.http) 或下面的 curl 命令。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -124,9 +140,11 @@ flowchart TD
     L[客户端查询任务或录音] --> M[读取MySQL状态和结果]
 ```
 
+选用 Go 自带 goroutine 执行后台任务，MySQL 保存 pending 队列，避免为单实例笔试项目引入 Redis 或独立消息队列。缓冲 channel 限制在途任务数，数据库状态负责持久化，两者分工不同。
+
 文件先保存到磁盘，再用事务创建 recordings 和 tasks。后台每秒查询 pending 任务，先获取并发名额，再通过带状态条件的 UPDATE 领取，更新成功才开始处理。
 
-转写和摘要调用不放在数据库事务里。每个阶段完成后，将结果与任务状态一起提交，避免出现状态完成但结果没保存的情况。失败重试从转写重新开始，不是从中断位置继续。
+转写和摘要调用不放在数据库事务里。每个阶段完成后，将结果与任务状态一起提交，避免出现状态完成但结果没保存的情况。失败重试从转写重新开始，不是从中断位置继续。LLM 调用设置60秒超时，并校验返回 JSON 的字段与类型；异常会记录失败阶段、错误码和日志，避免将无效结果标记为完成。
 
 目前只支持单实例，没有接入 Redis 或消息队列。文件系统和数据库不能一起回滚：上传提交结果不确定时保留文件并返回 upload_result_unknown；删除文件后如果 SQL 失败，需要核验后再次删除。相关日志用于排查。
 
