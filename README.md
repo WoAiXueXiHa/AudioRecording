@@ -10,7 +10,7 @@
 - 异步处理：上传保存后返回，不等待转写和摘要完成。
 - 查询：任务状态、录音详情、分页录音列表。
 - 失败重试：仅 failed 任务可重试，复用任务 ID，清空旧结果，重试次数加1。
-- 删除：仅 done 或 failed 可删除，同时清理音频文件、录音和任务记录。
+- 删除：仅 done 或 failed 可删除，同时清理音频文件、录音和任务记录。pending、transcribing、summarizing 返回409，需等待任务结束后删除；当前不提供取消处理中任务的接口，避免后台继续读写已删除的数据。
 - 重启处理：遗留的处理中任务标记为 failed，错误码为 service_interrupted；pending 任务继续排队。
 
 额外实现了后台并发限制。`WORKER_CONCURRENCY` 默认是3，使用缓冲 channel 控制同时执行的任务数，数据库中的 pending 任务作为队列。名额覆盖转写和摘要整个过程，任务结束后释放，满载时不继续领取。
@@ -103,11 +103,44 @@ curl --noproxy '*' -X DELETE http://127.0.0.1:8080/v1/recordings/1
 
 ## 实现思路
 
+```mermaid
+flowchart TD
+    A[客户端上传音频] --> B[校验并保存本地文件]
+    B --> C[MySQL事务创建录音和pending任务]
+    C --> D[立即返回recording_id和task_id]
+    C --> E[后台轮询pending任务]
+    E --> F[获取并发名额并条件领取]
+    F --> G[transcribing：Mock转写]
+    G --> H[summarizing：调用真实DeepSeek]
+    H --> I[事务保存摘要和done状态]
+    G --> J[failed：保存失败阶段和原因]
+    H --> J
+    J --> K[客户端手动重试]
+    K --> E
+    L[客户端查询任务或录音] --> M[读取MySQL状态和结果]
+```
+
 文件先保存到磁盘，再用事务创建 recordings 和 tasks。后台每秒查询 pending 任务，先获取并发名额，再通过带状态条件的 UPDATE 领取，更新成功才开始处理。
 
 转写和摘要调用不放在数据库事务里。每个阶段完成后，将结果与任务状态一起提交，避免出现状态完成但结果没保存的情况。失败重试从转写重新开始，不是从中断位置继续。
 
 目前只支持单实例，没有接入 Redis 或消息队列。文件系统和数据库不能一起回滚：上传提交结果不确定时保留文件并返回 upload_result_unknown；删除文件后如果 SQL 失败，需要核验后再次删除。相关日志用于排查。
+
+## 表结构设计
+
+建表脚本见 [migrations/001_init.sql](migrations/001_init.sql)，由 MySQL 在首次初始化空数据卷时执行。
+
+| 表 | 主要字段 | 用途 |
+| --- | --- | --- |
+| `recordings` | `id`、`original_filename`、`storage_path`、`file_size` | 保存音频信息，文件内容放本地磁盘 |
+| `recordings` | `transcript`、`summary`、`key_points`、`todos` | 保存转写和摘要；要点、待办使用 JSON 数组，未生成时为 NULL |
+| `tasks` | `id`、`recording_id`、`status`、`retry_count` | 保存处理状态和手动重试次数 |
+| `tasks` | `failed_stage`、`error_code`、`error_message`、`started_at`、`finished_at` | 定位失败原因并记录处理时间 |
+| 两表共有 | `created_at`、`updated_at` | 记录创建和更新时间 |
+
+`tasks.recording_id` 通过外键关联 `recordings.id`，并有唯一约束，每条录音最多一个任务。重试复用任务 ID、清空旧结果并增加计数，因此列表关联的任务就是当前最新状态，不额外维护尝试历史。删除时先删任务再删录音。
+
+录音表的 `(created_at DESC, id DESC)` 索引用于倒序分页；任务表的 `(status, created_at, id)` 索引用于按顺序领取 pending 任务。状态字段通过 CHECK 约束限定为 pending、transcribing、summarizing、done、failed。
 
 ## 测试
 
@@ -127,14 +160,20 @@ python3 scripts/check-all.py
 
 ## 服务器部署
 
-提供镜像打包脚本和服务器启动脚本，操作见 [deploy/README.md](deploy/README.md)。服务通过 Docker Compose 运行，API 只监听服务器回环地址，MySQL 不开放宿主机端口。
+提供镜像打包脚本和服务器启动脚本，操作见 [deploy/README.md](deploy/README.md)。服务器部署配置将 API 发布到宿主机8080端口，MySQL 不开放宿主机端口。放行服务器防火墙和云安全组的 TCP 8080 后，通过 `http://服务器公网IP:8080` 访问，Apifox 使用相同地址。
 
-本机通过 SSH 隧道访问，替换下面的用户名和服务器地址：
+当前演示地址：**http://192.144.168.226:8080**。2026-09-12 已通过公网真实 DeepSeek 上传验收，记录见 [docs/public-acceptance.md](docs/public-acceptance.md)。
 
 ```bash
-ssh -N -L 18080:127.0.0.1:8080 用户名@服务器地址
+curl --noproxy '*' http://192.144.168.226:8080/health
 ```
 
-保持终端开启，Apifox 地址改为 `http://127.0.0.1:18080`。服务器使用独立数据库，需要重新上传并使用新返回的 ID。
+根目录 Compose 用于本地运行，仍只绑定回环地址；公网部署使用 `deploy/compose.yaml`。服务没有前端页面，根路径 `/` 返回404；健康检查使用 `/health`。服务器使用独立数据库，需要重新上传并使用新返回的 ID。
 
-当前版本已通过本地自动化验收，也已在服务器通过上传到摘要查询的主链路测试。未实现真实语音识别、自动重试、鉴权和多实例部署。
+## 已知限制与未完成项
+
+- 转写是 Mock，未实现真实语音识别。
+- 未实现失败自动重试、SSE 摘要流和上传幂等。
+- 重启后 pending 继续排队，处理中任务标记 failed，需手动重试，不是自动恢复执行。
+- 仅终态录音可删除，不支持取消处理中任务；文件系统与数据库不能一起回滚，边界见上文。
+- 只支持单实例，未实现鉴权；公网演示接口可被访问者上传、查询和删除终态录音，上传会调用真实 LLM。
